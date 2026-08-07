@@ -1,0 +1,107 @@
+name: callu-voice
+
+services:
+  voice:
+    # Named so `docker compose pull` fetches the published build instead of compiling Asterisk
+    # from source, which takes the better part of an hour. `docker compose build` still works and
+    # tags the result here.
+    image: orchestalabs/callu-voice:1.0.0
+    build: .
+    container_name: callu-voice
+
+    # Non-root, every capability dropped. SYS_NICE is required to exec Asterisk at all —
+    # drop it and the container never starts; README.md covers the real-time trade-off.
+    user: "10001:10001"
+    cap_drop: [ALL]
+    cap_add: [SYS_NICE]
+    security_opt:
+      # Remove this line to get real-time Asterisk. It also lets every other
+      # file-capability or setuid binary in the image raise privileges, so it is a
+      # deliberate trade, not a default.
+      - no-new-privileges:true
+    mem_limit: ${MEM_LIMIT:-3g}
+    mem_reservation: 1g
+
+    ports:
+      # Published on the host loopback only, and authenticated regardless. Callu reaches
+      # it at 127.0.0.1:8090 on the host, or join both stacks to an external network.
+      - "127.0.0.1:${VOICE_API_PORT:-8090}:8090"
+      - "${SIP_PORT:-5060}:5060/udp"       # SIP signalling (UDP)
+      - "${RTP_START:-10000}-${RTP_END:-10099}:${RTP_START:-10000}-${RTP_END:-10099}/udp"
+      # ARI (8088) and the synthesizer (8080) stay on localhost inside the container.
+    environment:
+      # --- API auth: the caller presents this token on POST /calls ---
+      API_TOKEN: ${API_TOKEN:?set API_TOKEN in .env}
+      # --- destination cost control: default-deny E.164 prefix allowlist ---
+      ALLOWED_PREFIXES: ${ALLOWED_PREFIXES:?set ALLOWED_PREFIXES in .env, e.g. +90}
+      MAX_CONCURRENT_CALLS: ${MAX_CONCURRENT_CALLS:-30}
+      MAX_REQUEST_BYTES: ${MAX_REQUEST_BYTES:-262144}
+
+      # --- ARI (voice-api -> Asterisk, over localhost) ---
+      ARI_USERNAME: ${ARI_USERNAME:-callu}
+      ARI_PASSWORD: ${ARI_PASSWORD:?set ARI_PASSWORD in .env}
+      ARI_URL: http://127.0.0.1:8088/ari
+      ARI_WEBSOCKET: ws://127.0.0.1:8088/ari/events
+      TTS_URL: http://127.0.0.1:8080
+
+      # --- SIP trunk ---
+      # There is nothing to set here. The container starts with no carrier — that is its
+      # normal state, not an error — and Callu sends one over PUT /trunk and keeps sending
+      # it after a restart. How a number becomes a channel is all that is left:
+      ENDPOINT_FORMAT: ${ENDPOINT_FORMAT:-PJSIP/%s@trunk}
+
+      # Required whenever Asterisk is behind NAT, which includes bridged Docker.
+      EXTERNAL_MEDIA_ADDRESS: ${EXTERNAL_MEDIA_ADDRESS:-}
+      EXTERNAL_SIGNALING_ADDRESS: ${EXTERNAL_SIGNALING_ADDRESS:-}
+
+      RTP_START: ${RTP_START:-10000}
+      RTP_END: ${RTP_END:-10099}
+
+      # --- call flow ---
+      DETECT_MACHINE: ${DETECT_MACHINE:-false}
+      MAX_CALL_DURATION: ${MAX_CALL_DURATION:-120s}
+      SILENCE_TIMEOUT: ${SILENCE_TIMEOUT:-15s}
+      MAX_REPROMPTS: ${MAX_REPROMPTS:-2}
+      DIAL_TIMEOUT: ${DIAL_TIMEOUT:-45s}
+
+      # Cores the synthesizer may use. Defaults to all but two.
+      TTS_THREADS: ${TTS_THREADS:-}
+
+      # LRU ceiling for the rendered-audio volume below. Keep it under the free space
+      # actually available on the Docker volume; 0 disables the sweep.
+      TTS_CACHE_MAX_BYTES: ${TTS_CACHE_MAX_BYTES:-2147483648}
+
+      # --- development ---
+      TEST_ENDPOINTS: ${TEST_ENDPOINTS:-false}
+      TEST_PASSWORD: ${TEST_PASSWORD:-}
+    volumes:
+      # The TTS model (~400MB), so a rebuild does not re-download it.
+      - models:/cache
+      # Rendered audio (TTS_SOUNDS_DIR). Unbounded on the container layer, and a full
+      # filesystem stops every page — do not drop this to keep the compose file short.
+      - sounds:/var/lib/asterisk/sounds/callu
+    healthcheck:
+      # Unauthenticated, and 503 until ARI and the synthesizer are both up — so the
+      # container is not healthy until it can actually place a call.
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+
+    # Compose kills the container 10s after SIGTERM unless told otherwise, which is far inside the
+    # drain: a responder's acknowledgement would be discarded on every `compose down`. This has to
+    # stay above supervisord's own stopwaitsecs, which is in turn above voice-api's drain budget —
+    # the value it computes is logged as "shutdown budget" at startup.
+    stop_grace_period: 75s
+    restart: unless-stopped
+
+    # This file runs the voice stack on its own. To run it alongside Callu, use Callu's own
+    # compose file instead — it carries this service under the `voice` profile, already on the
+    # network the callback needs. The callback guard refuses loopback outright, so a URL of
+    # 127.0.0.1 never works from anywhere.
+
+volumes:
+  models:
+  sounds:

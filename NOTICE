@@ -1,0 +1,98 @@
+callu-voice
+Copyright (c) 2026 Callu.app
+Licensed under the MIT License (see LICENSE).
+
+This file records third-party software that callu-voice builds on. The code in
+this repository is MIT; the components below keep their own licenses.
+
+================================================================================
+Asterisk — GPLv2  (present in the published container image, not in this repo)
+================================================================================
+
+The container image built from this repository contains Asterisk, which is
+licensed under the GNU General Public License version 2.
+
+  Version:  22.10.1
+  Source:   https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-22.10.1.tar.gz
+  SHA-256:  0953564c44fa49827f3c9d70ca6e80db83828c9848440852c6be44c961855353
+  License:  https://github.com/asterisk/asterisk/blob/22.10.1/COPYING
+
+Asterisk is used UNMODIFIED. It is downloaded from the official upstream URL at
+image build time and verified against the SHA-256 above; this repository
+contains no Asterisk code. The Dockerfile in this repository is the complete
+build recipe, including the module selection applied via menuselect.
+
+WRITTEN OFFER: for three years from the distribution of any callu-voice image,
+Callu.app will provide TO ANY THIRD PARTY, on request, the complete corresponding
+source of any GPL- or LGPL-licensed component the image contains — Asterisk above
+being the worked example — for no more than the cost of distribution. Request it
+by email to hello@orchesta.io, or by opening an issue at
+https://github.com/orchesta/callu-voice/issues. The identical Asterisk source is
+also available at the upstream URL above; when a newer patch release supersedes
+it, upstream moves the tarball to .../pub/telephony/asterisk/releases/.
+
+Callu.app publishes this project as github.com/orchesta on GitHub and as
+orchestalabs on Docker Hub; all three names refer to the same publisher.
+
+callu-voice's own code is a separate program. It communicates with Asterisk over
+ARI (HTTP/WebSocket) and is not linked with it. Asterisk's own license grants an
+explicit exception for external applications using AMI/AGI/ARI:
+
+  https://github.com/asterisk/asterisk/blob/22.10.1/LICENSE
+
+The image is also built on Debian, which carries the usual mix of GPL and other
+licenses for unmodified upstream packages, available from https://debian.org.
+
+================================================================================
+Supertonic 3 — MIT (code) / OpenRAIL-M (model weights)
+================================================================================
+
+  Code:     https://github.com/supertone-inc/supertonic          (MIT)
+  Weights:  https://huggingface.co/Supertone/supertonic-3        (OpenRAIL-M)
+
+IMPORTANT: the model weights are NOT included in this repository or in the
+published image. They are downloaded at runtime into the cache volume by the
+deployment that runs callu-voice.
+
+This is deliberate, and not only for image size. OpenRAIL-M permits commercial
+use but attaches use restrictions (Attachment A) that must be passed downstream
+by anyone who redistributes the weights. By downloading at runtime we do not
+redistribute them, and the restrictions stay between the operator and Supertone.
+Baking the weights into the image to speed up first boot would change that —
+do not do it without accepting the obligation.
+
+================================================================================
+Other dependencies
+================================================================================
+
+Python (synthesis service)
+  fastapi, uvicorn, pydantic, pydantic-settings   MIT
+  numpy                                           BSD-3-Clause
+  onnxruntime                                     MIT
+  huggingface-hub                                 Apache-2.0
+  soundfile (python-soundfile)                    BSD-3-Clause
+    bundled libsndfile                            LGPL-2.1-or-later
+  soxr (python-soxr)                              LGPL-2.1
+    bundled libsoxr                               LGPL-2.1
+  num2words                                       LGPL-2.1
+  supervisor                                      BSD-derived (Supervisor license)
+
+Go (call flow service)
+  github.com/CyCoreSystems/ari                    Apache-2.0
+  github.com/google/uuid                          BSD-3-Clause
+  github.com/gogo/protobuf                        BSD-3-Clause   (indirect)
+  github.com/oklog/ulid                           Apache-2.0     (indirect)
+  github.com/rotisserie/eris                      MIT            (indirect)
+  golang.org/x/net, golang.org/x/exp              BSD-3-Clause   (indirect)
+  Go standard library                             BSD-3-Clause
+
+Exact pinned versions are in tts/requirements.txt and voice-api/go.mod. go.mod's
+full require set, including the indirect entries, is the authoritative list for
+what is compiled into the voice-api binary.
+
+ABOUT THE LGPL COMPONENTS: python-soxr and python-soundfile are redistributed as
+the unmodified upstream wheels, and those wheels embed libsoxr and libsndfile as
+native libraries rather than linking them dynamically from the system. Each wheel
+carries its own licence text, which is kept intact in the image under the Python
+site-packages directory. The written offer above covers their source too: request
+it the same way, or take it from the upstream projects.

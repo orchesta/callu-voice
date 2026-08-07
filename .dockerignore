@@ -1,0 +1,20 @@
+# Keeps things out of the build context, which one careless `COPY . .` away is the image.
+#
+# Not .gitignore patterns: a bare `*.pyc` matches only the context root, so every nested
+# pattern needs the `**/` prefix or it silently matches nothing.
+.env
+.env.*
+!.env.example
+.git
+**/.gitignore
+
+# Byte code compiled on the build host. Copied in with tts/, it wins over the .py it was built
+# from and carries the build machine's absolute paths into every traceback an operator reads.
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+
+# A locally built binary; the image builds its own.
+voice-api/voice-api
+voice-api/voice-api.exe

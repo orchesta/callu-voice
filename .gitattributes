@@ -1,0 +1,4 @@
+# Shell scripts run inside a Linux container; a CRLF shebang breaks exec at startup
+# ("no such file or directory") with no other symptom. Force LF regardless of the
+# checkout platform or a contributor's core.autocrlf setting.
+*.sh text eol=lf

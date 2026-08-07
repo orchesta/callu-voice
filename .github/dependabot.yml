@@ -1,0 +1,37 @@
+# Nothing in this repo used to notice a dependency going stale, and the two that matter most are
+# invisible to a reader: the Asterisk source pin (Dockerfile ARG, not a package) and onnxruntime
+# (pulled in behind supertonic). Dependabot covers everything except the first — an Asterisk
+# security release still has to be noticed by hand, so the CI supply-chain job is what catches
+# what it ships with.
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /voice-api
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the indirect graph. They are pulled in by the ARI client, nothing here imports
+      # them directly, and reviewing them one at a time buys nothing.
+      go-indirect:
+        patterns: ["golang.org/x/*", "github.com/gogo/*", "github.com/oklog/*", "github.com/rotisserie/*"]
+
+  - package-ecosystem: pip
+    directory: /tts
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

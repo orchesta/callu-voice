@@ -1,0 +1,4 @@
+[general]
+; Rendered from RTP_START/RTP_END. The carrier must be able to reach this range.
+rtpstart=${RTP_START}
+rtpend=${RTP_END}

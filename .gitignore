@@ -1,0 +1,19 @@
+# Secrets. .env holds API_TOKEN, ARI_PASSWORD and the trunk credential; the
+# wildcard is here because the exact name is not the only one that appears in
+# practice (.env.prod, .env.local, .env.bak from an edit). Only the checked-in
+# template is exempt.
+.env
+.env.*
+!.env.example
+
+# Python byte code and pytest state. tts/.gitignore already covers these under
+# tts/; repeated here because `python -m pytest` run from the repo root drops
+# .pytest_cache/ next to this file instead.
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# A locally built voice-api binary (go build with no -o lands here). ~10 MB of
+# platform-specific output that must never be what an operator deploys.
+/voice-api/voice-api
+/voice-api/voice-api.exe

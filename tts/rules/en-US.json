@@ -1,0 +1,25 @@
+{
+  "lexicon": {
+    "k8s": "kubernetes",
+    "i18n": "internationalization",
+    "psql": "postgres",
+    "nginx": "engine x",
+    "callu": "Call you"
+  },
+  "code_cues": [
+    "http",
+    "https",
+    "status",
+    "code",
+    "error",
+    "err",
+    "errno",
+    "exit",
+    "port",
+    "pid",
+    "id",
+    "no",
+    "num"
+  ],
+  "max_cardinal": 1000
+}

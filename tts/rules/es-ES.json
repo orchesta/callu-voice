@@ -1,0 +1,25 @@
+{
+  "lexicon": {
+    "callu": "Colyu"
+  },
+  "code_cues": [
+    "http",
+    "https",
+    "status",
+    "code",
+    "port",
+    "pid",
+    "id",
+    "no",
+    "num",
+    "exit",
+    "error",
+    "estado",
+    "código",
+    "codigo",
+    "puerto",
+    "número",
+    "numero"
+  ],
+  "max_cardinal": 1000
+}

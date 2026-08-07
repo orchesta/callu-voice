@@ -1,0 +1,23 @@
+{
+  "lexicon": {
+    "callu": "Колью"
+  },
+  "code_cues": [
+    "http",
+    "https",
+    "status",
+    "code",
+    "port",
+    "pid",
+    "id",
+    "no",
+    "num",
+    "exit",
+    "ошибка",
+    "статус",
+    "код",
+    "порт",
+    "номер"
+  ],
+  "max_cardinal": 1000
+}

@@ -1,0 +1,19 @@
+[general]
+enabled = yes
+pretty = no
+; The ARI client library sends this Origin on its event websocket. Without it here
+; every connect logs a CORS notice that reads like a rejection but is not one.
+allowed_origins = http://localhost/
+
+[${ARI_USERNAME}]
+type = user
+read_only = no
+password = ${ARI_PASSWORD}
+password_format = plain
+; This user can originate calls, so it is worth two locks rather than one. The HTTP server already
+; binds loopback; this makes the credential itself useless from anywhere else, so a future change
+; to bindaddr cannot quietly widen it. Rules are read in order and the last match wins.
+deny = 0.0.0.0/0
+deny = ::/0
+permit = 127.0.0.1/32
+permit = ::1/128

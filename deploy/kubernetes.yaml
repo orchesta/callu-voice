@@ -1,0 +1,200 @@
+# callu-voice on Kubernetes: one Deployment, one Pod, one container.
+#
+# Asterisk, the synthesizer and the call flow run side by side under supervisord.
+# They are kept out of each other's way by scheduling policy, not by container
+# boundaries:
+#
+#   - Asterisk does not get real-time priority here, and SYS_NICE below is still
+#     required to exec it at all. README.md has the trade-off and how to change it.
+#   - Synthesis is capped to TTS_THREADS cores and niced down.
+#   - supervisord restarts a process that dies without recycling the pod, and
+#     exits if it ever gives up on one — see supervisord.conf.
+#
+# The three processes share a filesystem, so rendered audio needs no ReadWriteMany
+# volume. It does need a volume: on the container's own layer it grows per
+# incident until writes fail, and every page fails with it.
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: callu-voice
+type: Opaque
+# No values here: create the secret out of band so credentials are never
+# committed. The container refuses to start on an empty or placeholder secret.
+#   kubectl create secret generic callu-voice \
+#     --from-literal=API_TOKEN="$(openssl rand -hex 24)" \
+#     --from-literal=ARI_PASSWORD="$(openssl rand -hex 16)"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: callu-voice
+data:
+  ARI_USERNAME: "callu"
+  # Default-deny destination allowlist. Keep it as tight as your real numbers.
+  ALLOWED_PREFIXES: "+90"
+  MAX_CONCURRENT_CALLS: "30"
+  # No carrier here: the pod starts without one, and Callu pushes it over PUT /trunk and
+  # re-pushes it after a rollout. Nothing has to be recreated to change or rotate it.
+  ENDPOINT_FORMAT: "PJSIP/%s@trunk"
+  # Asterisk is behind NAT unless it is on the node's own address. Without this
+  # the call connects and nobody hears anything.
+  EXTERNAL_MEDIA_ADDRESS: "203.0.113.10"
+  RTP_START: "10000"
+  RTP_END: "10099"
+  # Cores the synthesizer may use. Defaults to all but two.
+  TTS_THREADS: "4"
+  # Ceiling for the rendered-audio PVC. Keep it under the claim's real size: the
+  # sweep only runs after a write, so a bound above the volume means the write
+  # fails first.
+  TTS_CACHE_MAX_BYTES: "2147483648"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: callu-voice
+spec:
+  # Calls are held in memory by the pod that placed them, and a second replica
+  # would register the same trunk twice. Scale by giving the pod more CPU.
+  # `Recreate` means a redeploy has a brief paging gap; voice-api drains in-flight
+  # calls on TERM so their acknowledgements are still delivered.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: callu-voice
+  template:
+    metadata:
+      labels:
+        app: callu-voice
+    spec:
+      # Must outlast supervisord's longest stopwaitsecs (65s, asterisk) or the kubelet SIGKILLs the
+      # container mid-drain and an acknowledgement a responder already gave is lost. Raise with CALLBACK_*.
+      terminationGracePeriodSeconds: 75
+
+      # RTP needs a wide UDP range reachable from the carrier, so hostNetwork
+      # stays. Read what it means, because it is not what the Service below might
+      # suggest: every port these processes listen on is on the node's real
+      # network stack.
+      #
+      #   - voice-api listens on :8090, so POST /calls is reachable at
+      #     <node-ip>:8090 by anything that can route to the node. The API token is
+      #     the only thing in front of it, and this endpoint dials the PSTN.
+      #   - ARI (8088) and the synthesizer (8080) bind 127.0.0.1, which under
+      #     hostNetwork is the NODE's loopback — off-node it is unreachable, but any
+      #     other process on that node, or any other hostNetwork pod, can reach ARI
+      #     and originate calls. Do not schedule untrusted workloads here.
+      #   - NetworkPolicy does not apply to hostNetwork pods, so it cannot fix any
+      #     of the above.
+      #
+      # What an operator has to do: firewall <node-ip>:8090 at the node so only
+      # Callu can reach it, or bind it narrowly with HTTP_ADDR (e.g.
+      # HTTP_ADDR=10.0.0.5:8090) and front it.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: voice
+          image: orchestalabs/callu-voice:1.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+              # Required to exec Asterisk at all; with allowPrivilegeEscalation:
+              # false above it grants no real-time priority beyond that.
+              add: [SYS_NICE]
+          envFrom:
+            - configMapRef:
+                name: callu-voice
+            - secretRef:
+                name: callu-voice
+          volumeMounts:
+            - name: models
+              mountPath: /cache
+            - name: sounds
+              mountPath: /var/lib/asterisk/sounds/callu
+          resources:
+            requests:
+              cpu: "2"
+              memory: 1Gi
+            limits:
+              cpu: "6"
+              memory: 3Gi
+          # Readiness: only receive traffic when ARI and the synthesizer are up.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          # Deliberately not /health: that reports dependency readiness, so a synthesizer
+          # reloading its model would recycle the whole pod and fail every in-flight page.
+          livenessProbe:
+            tcpSocket:
+              port: 8090
+            initialDelaySeconds: 120
+            periodSeconds: 20
+            failureThreshold: 6
+
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: callu-voice-models
+        - name: sounds
+          persistentVolumeClaim:
+            claimName: callu-voice-sounds
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: callu-voice-models
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      # The TTS model. Kept out of the image so a rebuild does not re-download it.
+      storage: 2Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: callu-voice-sounds
+spec:
+  # ReadWriteOnce is enough: one pod, replicas 1. Not an emptyDir — over its
+  # sizeLimit the pod is evicted, which is a paging outage rather than a cleanup.
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      # Above TTS_CACHE_MAX_BYTES, so the LRU sweep is what bounds the directory
+      # rather than a failing write.
+      storage: 3Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: callu-voice
+spec:
+  # A stable in-cluster name for the call API. It is NOT what limits exposure:
+  # the pod is hostNetwork, so :8090 is already open on the node's IP whether this
+  # Service exists or not, and ARI/the synthesizer are on the node's loopback.
+  # See the hostNetwork comment on the Deployment.
+  selector:
+    app: callu-voice
+  ports:
+    - name: api
+      port: 8090
+      targetPort: 8090

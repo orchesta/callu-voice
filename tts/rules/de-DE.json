@@ -1,0 +1,22 @@
+{
+  "lexicon": {
+    "callu": "Kolju"
+  },
+  "code_cues": [
+    "http",
+    "https",
+    "status",
+    "code",
+    "port",
+    "pid",
+    "id",
+    "no",
+    "num",
+    "exit",
+    "fehler",
+    "nummer",
+    "nr",
+    "kennzahl"
+  ],
+  "max_cardinal": 1000
+}

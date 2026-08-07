@@ -1,0 +1,183 @@
+# No staging and no canary: the first time a build is exercised is when someone's
+# phone is supposed to ring, so these gates are about the whole container.
+#
+# Not covered, said plainly: nothing here places a call. There is no Asterisk, no
+# SIP trunk and no model weights, so entrypoint.sh, the rendered Asterisk config,
+# supervisord's process supervision and real synthesis are unverified by CI —
+# only by the manual checks in README.md ("Running it").
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  voice-api:
+    name: voice-api — vet, build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: voice-api
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          # Pinned from go.mod so CI and the Dockerfile's builder stage cannot
+          # disagree about the language version. Path is workspace-relative;
+          # defaults.working-directory applies to `run` steps only.
+          go-version-file: voice-api/go.mod
+          cache-dependency-path: voice-api/go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test (race detector)
+        # -race is the point of this step, not taste: internal/call keeps a live
+        # call's mutable state in one goroutine by construction, and the detector is
+        # what turns that claim into something CI checks. Blind spot: only code paths
+        # a test exercises, and the flow tests drive fake ports.
+        run: go test ./... -race
+
+  tts:
+    name: tts — pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tts
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          # What python:3.12-slim ships, so the tests run on the interpreter the
+          # image runs.
+          python-version: '3.12'
+
+      - name: Install what the tests import
+        # Deliberately not `-r requirements.txt`: that pins supertonic and the
+        # onnxruntime/HuggingFace stack behind it, and no test touches the engine.
+        # Used as a constraint file instead, so these four cannot drift from the
+        # versions the image runs.
+        #
+        # Blind spot: this does not prove requirements.txt is installable — the
+        # image job covers that — nor that app/main.py imports at all.
+        run: pip install -c requirements.txt pytest numpy soxr num2words
+
+      - name: Test
+        # Run from tts/, so `from app.normalize import ...` resolves exactly as it
+        # does in the container (`-w /srv/tts python -m pytest tests/`).
+        run: python -m pytest tests -q
+
+  image:
+    name: Image — docker build
+    runs-on: ubuntu-latest
+    # Asterisk is compiled from source inside the image; that is nearly all the wall time.
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build
+        # The whole product is one image, and the Asterisk pin, the menuselect list
+        # and the library purge with its "not found" self-check are exercised only by
+        # a build. Nothing is pushed or loaded: this proves it builds, not that it runs.
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          # Hosted runners start with an empty disk, so without this every push
+          # recompiles Asterisk; mode=max keeps the expensive intermediate stage.
+          # GitHub evicts the cache, so an occasional cold ~40-minute run is normal.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  supply-chain:
+    name: Supply chain — govulncheck, pip-audit, image scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    # Every gate here fails only on something actionable: a base image always carries open Debian
+    # CVEs with no fix, and a red build nobody can turn green is a gate people learn to ignore.
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: voice-api/go.mod
+          cache-dependency-path: voice-api/go.sum
+
+      - name: govulncheck
+        # Reports only vulnerabilities this code can actually reach, not every advisory touching a
+        # module in the graph. That is why it can be a hard gate: a hit means a call path here
+        # runs affected code.
+        working-directory: voice-api
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: pip-audit
+        # Audits the pinned file rather than an installed environment, so it covers what the image
+        # gets — including onnxruntime, which no test imports.
+        working-directory: tts
+        run: |
+          pip install pip-audit
+          pip-audit --requirement requirements.txt --strict
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build the image for scanning
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          # Loaded, not discarded: the scan needs an image in the daemon. Shares the build cache
+          # with the image job, so this is not a second compile of Asterisk.
+          load: true
+          tags: callu-voice:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy
+        # --ignore-unfixed is what lets this be a gate: it fails on what a rebuild or a bump would
+        # actually fix. The unfixable ones are still worth seeing — that is the report step below.
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: callu-voice:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+
+      - name: Trivy — everything else, reported not enforced
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: callu-voice:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: false
+          exit-code: '0'
+          format: table

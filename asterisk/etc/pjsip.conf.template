@@ -1,0 +1,23 @@
+; Rendered from pjsip.conf.template by entrypoint.sh. Do not edit in place.
+
+[transport-udp]
+type=transport
+protocol=udp
+bind=0.0.0.0:5060
+${NAT_CONFIG}
+
+; Declared at boot because a transport's protocol and bind are not reloadable: a trunk that
+; asks for TCP can only be pointed at one that already exists.
+[transport-tcp]
+type=transport
+protocol=tcp
+bind=0.0.0.0:5060
+${NAT_CONFIG}
+
+; ---------------------------------------------------------------- SIP trunk
+; Its own file so it can be rewritten and reloaded without touching anything else here.
+; entrypoint.sh writes it empty at boot; PUT /trunk replaces it with a carrier at runtime.
+#include /etc/asterisk/pjsip_trunk.conf
+
+; ------------------------------------------------- test endpoints (dev only)
+${TEST_CONFIG}
