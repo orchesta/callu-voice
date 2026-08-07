@@ -10,6 +10,6 @@ uvicorn==0.52.1
 pydantic==2.13.4
 pydantic-settings==2.14.2
 numpy==2.5.1
-soxr==1.0.0
+soxr==1.1.0
 num2words==0.5.14
 pytest==9.1.1
