@@ -1,7 +1,9 @@
 # callu-voice
 
 Self-hosted voice paging for on-call alerting. Places a phone call, reads an
-incident aloud, collects a keypress, and reports the outcome back.
+incident aloud, collects a keypress, and reports the outcome back. Built to be
+driven by [Callu](https://github.com/orchesta/callu) ([callu.app](https://callu.app)),
+usable over its HTTP API alone.
 
 Everything runs on your own infrastructure: no cloud telephony account, no audio
 or incident text leaving the box. The only outside party is your SIP carrier.
