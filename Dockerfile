@@ -1,7 +1,7 @@
 # One image: Asterisk, the synthesizer and the call flow, kept apart by priority
 # and thread count rather than by container boundaries (supervisord.conf).
 
-FROM golang:1.26 AS voice-api-build
+FROM golang:1.27 AS voice-api-build
 
 WORKDIR /src
 COPY voice-api/go.mod voice-api/go.sum ./
