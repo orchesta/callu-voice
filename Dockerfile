@@ -15,7 +15,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/voice-api ./cmd/vo
 # Pinned to a Debian release, not just a Python one: Asterisk is compiled from source here against
 # whatever the base image ships, and the floating tag has already moved from bookworm to trixie
 # once. A move like that is a rebuild that behaves differently for no reason in this repo.
-FROM python:3.14.6-slim-trixie
+FROM python:3.15.0rc2-slim-trixie
 
 ARG AST_VERSION=22.10.1
 ARG AST_SHA256=0953564c44fa49827f3c9d70ca6e80db83828c9848440852c6be44c961855353
